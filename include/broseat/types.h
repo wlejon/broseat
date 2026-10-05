@@ -11,8 +11,7 @@ namespace broseat {
 enum class SeatBackendType {
     Auto,
     Libseat,
-    Logind,
-    Mock
+    Logind
 };
 
 enum class DeviceType {

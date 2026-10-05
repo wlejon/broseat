@@ -10,7 +10,6 @@ std::string_view seat_backend_name(SeatBackendType backend) {
         case SeatBackendType::Auto: return "auto";
         case SeatBackendType::Libseat: return "libseat";
         case SeatBackendType::Logind: return "logind";
-        case SeatBackendType::Mock: return "mock";
     }
     return "unknown";
 }
@@ -18,7 +17,6 @@ std::string_view seat_backend_name(SeatBackendType backend) {
 SeatBackendType parse_seat_backend(std::string_view name) {
     if (name == "libseat") return SeatBackendType::Libseat;
     if (name == "logind") return SeatBackendType::Logind;
-    if (name == "mock") return SeatBackendType::Mock;
     return SeatBackendType::Auto;
 }
 

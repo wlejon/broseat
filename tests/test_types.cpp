@@ -11,12 +11,10 @@ int main() {
     assert(seat_backend_name(SeatBackendType::Auto) == "auto");
     assert(seat_backend_name(SeatBackendType::Libseat) == "libseat");
     assert(seat_backend_name(SeatBackendType::Logind) == "logind");
-    assert(seat_backend_name(SeatBackendType::Mock) == "mock");
 
     assert(parse_seat_backend("auto") == SeatBackendType::Auto);
     assert(parse_seat_backend("libseat") == SeatBackendType::Libseat);
     assert(parse_seat_backend("logind") == SeatBackendType::Logind);
-    assert(parse_seat_backend("mock") == SeatBackendType::Mock);
     assert(parse_seat_backend("unknown") == SeatBackendType::Auto);
 
     // Test device type names and detection
