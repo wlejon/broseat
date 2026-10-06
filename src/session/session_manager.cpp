@@ -66,6 +66,31 @@ public:
         return invoke_session_method("Unlock");
     }
 
+    bool switch_vt(uint32_t vt_number) override {
+        if (!bus_ || vt_number == 0) return false;
+        sd_bus_message* m = nullptr;
+        int r = sd_bus_message_new_method_call(
+            bus_->raw(), &m,
+            "org.freedesktop.login1",
+            session_path_.c_str(),
+            "org.freedesktop.login1.Session",
+            "SwitchTo");
+        if (r < 0) return false;
+        sd_bus_message_append(m, "u", vt_number);
+
+        sd_bus_error err = SD_BUS_ERROR_NULL;
+        sd_bus_message* reply = nullptr;
+        r = sd_bus_call(bus_->raw(), m, 0, &err, &reply);
+        sd_bus_message_unref(m);
+        if (reply) sd_bus_message_unref(reply);
+        sd_bus_error_free(&err);
+        if (r >= 0) {
+            notify_event(VtSwitched{static_cast<int>(vt_number)});
+            return true;
+        }
+        return false;
+    }
+
     EventQueue& event_queue() noexcept override {
         return event_queue_;
     }

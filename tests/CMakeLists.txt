@@ -31,3 +31,51 @@ if(BROSEAT_LINUX)
 else()
     broseat_test(test_unavailable)
 endif()
+
+if(BROSEAT_ENABLE_API)
+    add_executable(broseat_test_api
+        test_seat_api.cpp
+    )
+    target_include_directories(broseat_test_api PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/api
+        ${PROJECT_SOURCE_DIR}/src
+    )
+    target_link_libraries(broseat_test_api PRIVATE
+        broseat_api
+        broseat
+        bronze_runtime_shared
+    )
+    broseat_warnings(broseat_test_api)
+    if(WIN32)
+        target_compile_definitions(broseat_test_api PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+        add_custom_command(TARGET broseat_test_api POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:bronze_runtime_shared>
+                $<TARGET_FILE_DIR:broseat_test_api>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_LINKER_FILE:bronze_runtime_shared>
+                $<TARGET_FILE_DIR:broseat_test_api>
+        )
+    endif()
+
+    if(NOT BRASS_HOST_BACKEND)
+        message(STATUS "broseat: broseat_test_api not registered (brass has no code generator for this target)")
+    else()
+        add_test(NAME broseat_test_api COMMAND broseat_test_api)
+        set_tests_properties(broseat_test_api PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+
+        add_test(NAME broseat_test_api_gc_stress COMMAND broseat_test_api)
+        set_tests_properties(broseat_test_api_gc_stress PROPERTIES
+            TIMEOUT 60
+            SKIP_RETURN_CODE 77
+            ENVIRONMENT "BRONZE_GC_STRESS=1;BRONZE_GC_POISON=1"
+        )
+        if(WIN32)
+            set_tests_properties(broseat_test_api PROPERTIES
+                ENVIRONMENT "PATH=$<TARGET_FILE_DIR:bronze_runtime_shared>;$<TARGET_FILE_DIR:broseat_test_api>;$ENV{PATH}")
+            set_property(TEST broseat_test_api_gc_stress APPEND PROPERTY
+                ENVIRONMENT "PATH=$<TARGET_FILE_DIR:bronze_runtime_shared>;$<TARGET_FILE_DIR:broseat_test_api>;$ENV{PATH}")
+        endif()
+    endif()
+endif()

@@ -36,6 +36,7 @@ public:
 
     virtual bool lock_session() = 0;
     virtual bool unlock_session() = 0;
+    virtual bool switch_vt(uint32_t vt_number) = 0;
 
     virtual EventQueue& event_queue() noexcept = 0;
     virtual void set_event_callback(std::function<void(const Event&)> cb) = 0;
