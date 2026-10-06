@@ -1,6 +1,6 @@
 #include "broseat/seat.h"
+#include "common/utils.h"
 
-#include <unistd.h>
 #include <utility>
 
 namespace broseat {
@@ -46,7 +46,7 @@ void SeatDevice::close() {
         device_id_ = -1;
     }
     if (fd_ >= 0) {
-        ::close(fd_);
+        utils::close_fd(fd_);
         fd_ = -1;
     }
 }

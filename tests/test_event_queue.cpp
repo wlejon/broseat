@@ -1,93 +1,89 @@
+// EventQueue: ordering, drain, wait_for timeouts, the wake hook, and many
+// producers against one consumer. Portable: runs on every platform.
+#include "check.h"
 #include "broseat/event_queue.h"
 
 #include <atomic>
-#include <cassert>
 #include <chrono>
-#include <iostream>
 #include <thread>
 #include <vector>
 
-int main() {
-    using namespace broseat;
+using namespace broseat;
 
+static void test_order_and_drain() {
     EventQueue queue;
-    assert(queue.empty());
-    assert(queue.size() == 0);
+    CHECK(queue.empty());
+    CHECK_EQ(queue.size(), size_t(0));
 
-    // Push events
-    queue.push(SeatActiveChanged{ .active = true });
-    queue.push(VtSwitched{ .vt_number = 2 });
-    queue.push(SessionLockedChanged{ .locked = true });
+    queue.push(SeatActiveChanged{.active = true});
+    queue.push(VtSwitched{.vt_number = 2});
+    queue.push(SessionLockedChanged{.locked = true});
+    CHECK(!queue.empty());
+    CHECK_EQ(queue.size(), size_t(3));
 
-    assert(!queue.empty());
-    assert(queue.size() == 3);
-
-    // Drain events
     auto events = queue.drain();
-    assert(events.size() == 3);
-    assert(queue.empty());
-    assert(queue.size() == 0);
+    REQUIRE(events.size() == 3);
+    CHECK(queue.empty());
+    REQUIRE(std::holds_alternative<SeatActiveChanged>(events[0]));
+    CHECK(std::get<SeatActiveChanged>(events[0]).active);
+    REQUIRE(std::holds_alternative<VtSwitched>(events[1]));
+    CHECK_EQ(std::get<VtSwitched>(events[1]).vt_number, 2);
+    REQUIRE(std::holds_alternative<SessionLockedChanged>(events[2]));
+    CHECK(std::get<SessionLockedChanged>(events[2]).locked);
+}
 
-    assert(std::holds_alternative<SeatActiveChanged>(events[0]));
-    assert(std::get<SeatActiveChanged>(events[0]).active == true);
-
-    assert(std::holds_alternative<VtSwitched>(events[1]));
-    assert(std::get<VtSwitched>(events[1]).vt_number == 2);
-
-    assert(std::holds_alternative<SessionLockedChanged>(events[2]));
-    assert(std::get<SessionLockedChanged>(events[2]).locked == true);
-
-    // Test wait_for timeout
+static void test_wait_and_wake() {
+    EventQueue queue;
     auto start = std::chrono::steady_clock::now();
-    bool has_items = queue.wait_for(std::chrono::milliseconds(50));
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+    CHECK(!queue.wait_for(std::chrono::milliseconds(50)));
+    auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
-    assert(!has_items);
-    assert(duration.count() >= 40);
+    CHECK(waited.count() >= 40);
 
-    // Test set_wake hook
-    std::atomic<int> wake_count{0};
-    queue.set_wake([&wake_count]() {
-        wake_count.fetch_add(1);
-    });
+    std::atomic<int> wakes{0};
+    queue.set_wake([&wakes] { wakes.fetch_add(1); });
+    queue.push(SeatActiveChanged{.active = false});
+    CHECK_EQ(wakes.load(), 1);
+    queue.push(SeatActiveChanged{.active = true});
+    CHECK_EQ(wakes.load(), 2);
+    CHECK(queue.wait_for(std::chrono::milliseconds(50)));
+    CHECK_EQ(queue.drain().size(), size_t(2));
+}
 
-    queue.push(SeatActiveChanged{ .active = false });
-    assert(wake_count.load() == 1);
-    queue.push(SeatActiveChanged{ .active = true });
-    assert(wake_count.load() == 2);
-
-    assert(queue.wait_for(std::chrono::milliseconds(50)));
-    events = queue.drain();
-    assert(events.size() == 2);
-
-    // Multi-threaded producer-consumer test
-    const int num_producers = 4;
-    const int items_per_producer = 250;
+static void test_many_producers() {
+    EventQueue queue;
+    constexpr int kProducers = 4;
+    constexpr int kPerProducer = 250;
     std::vector<std::thread> producers;
-
-    for (int p = 0; p < num_producers; ++p) {
-        producers.emplace_back([&queue, p, items_per_producer]() {
-            for (int i = 0; i < items_per_producer; ++i) {
-                queue.push(VtSwitched{ .vt_number = p * 1000 + i });
-            }
+    for (int p = 0; p < kProducers; ++p) {
+        producers.emplace_back([&queue, p] {
+            for (int i = 0; i < kPerProducer; ++i) queue.push(VtSwitched{.vt_number = p * 1000 + i});
         });
     }
 
-    size_t total_received = 0;
-    while (total_received < num_producers * items_per_producer) {
+    std::vector<int> seen;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (seen.size() < size_t(kProducers * kPerProducer) && std::chrono::steady_clock::now() < deadline) {
         if (queue.wait_for(std::chrono::milliseconds(200))) {
-            auto chunk = queue.drain();
-            total_received += chunk.size();
+            for (auto& e : queue.drain()) seen.push_back(std::get<VtSwitched>(e).vt_number);
         }
     }
+    for (auto& t : producers) t.join();
 
-    for (auto& t : producers) {
-        t.join();
+    CHECK_EQ(seen.size(), size_t(kProducers * kPerProducer));
+    CHECK(queue.empty());
+    // Each producer's items arrive in the order it pushed them.
+    std::vector<int> last(kProducers, -1);
+    for (int v : seen) {
+        int p = v / 1000, i = v % 1000;
+        CHECK(i > last[p]);
+        last[p] = i;
     }
+}
 
-    assert(total_received == num_producers * items_per_producer);
-    assert(queue.empty());
-
-    std::cout << "test_event_queue PASSED\n";
-    return 0;
+int main() {
+    test_order_and_drain();
+    test_wait_and_wake();
+    test_many_producers();
+    return bstest::finish("test_event_queue");
 }

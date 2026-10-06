@@ -23,4 +23,7 @@ bool set_env(const std::string& name, const std::string& value);
 
 std::string sanitize_unit_name(std::string_view input);
 
+// close(2), or _close on Windows.
+void close_fd(int fd);
+
 }  // namespace broseat::utils

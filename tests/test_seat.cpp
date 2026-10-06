@@ -1,58 +1,65 @@
+// Seat control through libseat and logind, for real. Taking control of a seat
+// needs a session no compositor already controls (a free VT, or a seatd the
+// user may use), so on a desktop that is running a compositor, and on CI
+// runners with no seat at all, the device part skips and says why. Whatever
+// the machine, a refused backend must say why. Linux.
+#include "check.h"
 #include "broseat/seat.h"
 
-#include <cassert>
-#include <iostream>
-#include <unistd.h>
+#include <string>
+
+using namespace broseat;
 
 int main() {
-    using namespace broseat;
+    std::string libseat_err, logind_err;
+    auto libseat = Seat::create(SeatConfig{.backend = SeatBackendType::Libseat}, &libseat_err);
+    if (!libseat) CHECK(!libseat_err.empty());
+    auto logind = Seat::create(SeatConfig{.backend = SeatBackendType::Logind}, &logind_err);
+    if (!logind) CHECK(!logind_err.empty());
+    if (libseat) CHECK(libseat->backend_type() == SeatBackendType::Libseat);
+    if (logind) CHECK(logind->backend_type() == SeatBackendType::Logind);
+    libseat.reset();
+    logind.reset();
 
-    std::cout << "Testing real seat backend creation (Auto / Libseat / Logind)...\n";
-
-    // 1. Test real Auto creation
-    SeatConfig auto_cfg;
-    auto_cfg.backend = SeatBackendType::Auto;
-    std::string auto_err;
-    auto seat = Seat::create(auto_cfg, &auto_err);
-
+    std::string err;
+    auto seat = Seat::create(SeatConfig{}, &err);
     if (!seat) {
-        // In a running desktop environment (like KDE Plasma/KWin), the running compositor
-        // already holds exclusive control of seat0 via logind TakeControl.
-        // Therefore, secondary unprivileged processes cannot take control of the same seat.
-        std::cout << "Notice: Real seat control could not be acquired: " << auto_err << "\n";
-        std::cout << "Skipping hardware seat manipulation (seat already owned or unprivileged).\n";
-        // CTest skip code
-        return 77;
+        CHECK(!err.empty());
+        if (bstest::failures() > 0) return bstest::finish("test_seat");
+        bstest::skip("test_seat", "no seat this process may control (a compositor owns it, or there is "
+                                  "no seat): " + err);
     }
 
-    // If we acquired seat control:
-    std::cout << "Acquired seat: " << seat->seat_name()
-              << " via backend: " << seat_backend_name(seat->backend_type()) << "\n";
-    assert(!seat->seat_name().empty());
+    std::printf("Acquired seat %s via %s (active: %d)\n", seat->seat_name().c_str(),
+                std::string(seat_backend_name(seat->backend_type())).c_str(), seat->is_active());
+    CHECK(!seat->seat_name().empty());
+    CHECK(seat->poll_fd() >= 0);
+    CHECK(seat->dispatch(0) >= 0);
 
-    // Test device opening on real seat if active
-    if (seat->is_active()) {
-        std::string dev_err;
-        auto dev = seat->open_device("/dev/dri/card0", &dev_err);
-        if (dev) {
-            assert(dev->is_valid());
-            assert(dev->fd() >= 0);
-            assert(dev->type() == DeviceType::DrmCard);
-
-            // Test move semantics
-            int id = dev->device_id();
-            int fd = dev->fd();
-            SeatDevice moved = std::move(*dev);
-            assert(moved.is_valid());
-            assert(moved.device_id() == id);
-            assert(moved.fd() == fd);
-            assert(!dev->is_valid());
-
-            moved.close();
-            assert(!moved.is_valid());
-        }
+    if (!seat->is_active()) {
+        std::printf("Note: the seat is not active; device opening was not checked\n");
+        return bstest::finish("test_seat");
     }
 
-    std::cout << "test_seat PASSED\n";
-    return 0;
+    std::string dev_err;
+    auto dev = seat->open_device("/dev/dri/card0", &dev_err);
+    if (!dev) {
+        std::printf("Note: /dev/dri/card0 could not be opened: %s\n", dev_err.c_str());
+        return bstest::finish("test_seat");
+    }
+    CHECK(dev->is_valid());
+    CHECK(dev->fd() >= 0);
+    CHECK(dev->type() == DeviceType::DrmCard);
+
+    int id = dev->device_id();
+    int fd = dev->fd();
+    SeatDevice moved = std::move(*dev);
+    CHECK(moved.is_valid());
+    CHECK_EQ(moved.device_id(), id);
+    CHECK_EQ(moved.fd(), fd);
+    CHECK(!dev->is_valid());
+    moved.close();
+    CHECK(!moved.is_valid());
+
+    return bstest::finish("test_seat");
 }
