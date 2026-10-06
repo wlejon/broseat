@@ -96,6 +96,14 @@ std::unique_ptr<Bus> Bus::open_address(const std::string& address, std::string* 
         sd_bus_unref(bus);
         return nullptr;
     }
+    // A message bus, not a peer-to-peer connection: send Hello so the daemon
+    // gives us a unique name and AddMatch rules are registered with it.
+    r = sd_bus_set_bus_client(bus, 1);
+    if (r < 0) {
+        if (error) *error = strerror(-r);
+        sd_bus_unref(bus);
+        return nullptr;
+    }
     r = sd_bus_start(bus);
     if (r < 0) {
         if (error) *error = strerror(-r);

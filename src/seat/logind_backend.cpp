@@ -105,9 +105,31 @@ std::unique_ptr<LogindBackend> LogindBackend::open(const SeatConfig& config, std
         session_path = "/org/freedesktop/login1/session/auto";
     }
 
-    std::string seat_name = config.seat_name;
-    if (seat_name.empty()) {
-        seat_name = utils::get_env("XDG_SEAT", "seat0");
+    // The seat is the session's own (Session.Seat); a session that is not on
+    // a seat (ssh, a service) has no devices to take, so there is nothing to
+    // control.
+    std::string session_seat;
+    {
+        sd_bus_message* m = nullptr;
+        int r = sd_bus_get_property(bus->raw(), "org.freedesktop.login1", session_path.c_str(),
+                                    "org.freedesktop.login1.Session", "Seat", nullptr, &m, "(so)");
+        if (r >= 0 && m) {
+            const char* seat_id = nullptr;
+            const char* seat_path = nullptr;
+            if (sd_bus_message_read(m, "(so)", &seat_id, &seat_path) >= 0 && seat_id) {
+                session_seat = seat_id;
+            }
+            sd_bus_message_unref(m);
+        }
+    }
+    if (session_seat.empty()) {
+        if (error) *error = "logind session " + session_path + " is not attached to a seat";
+        return nullptr;
+    }
+    std::string seat_name = config.seat_name.empty() ? session_seat : config.seat_name;
+    if (seat_name != session_seat) {
+        if (error) *error = "logind session " + session_path + " is on " + session_seat + ", not " + seat_name;
+        return nullptr;
     }
 
     auto backend = std::unique_ptr<LogindBackend>(
