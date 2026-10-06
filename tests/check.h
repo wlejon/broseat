@@ -78,6 +78,12 @@ inline std::string env(const char* var) {
 #endif
 }
 
+// Actions on the user's real session (locking it, switching VT, taking
+// control of the seat) run only with BROSEAT_TEST_MUTATE=1. CI runners are
+// disposable and set it; on a desktop they would lock the screen or move it
+// to another VT.
+inline bool mutate_opted_in() { return env("BROSEAT_TEST_MUTATE") == "1"; }
+
 inline bool wait_until(const std::function<bool()>& pred, std::chrono::milliseconds timeout,
                        std::chrono::milliseconds step = std::chrono::milliseconds(10)) {
     auto deadline = std::chrono::steady_clock::now() + timeout;

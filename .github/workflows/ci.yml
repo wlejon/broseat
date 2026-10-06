@@ -38,7 +38,12 @@ concurrency:
 # Windows and macOS build the portable library and run the portable tests plus
 # test_unavailable, which holds every Linux entry point to refusing with a
 # reason.
+#
+# BROSEAT_TEST_MUTATE=1: runners are disposable, so the tests that act on the
+# real session (the api test's lock() and switchVt(7), test_seat taking control
+# of a seat) run here; on a desktop they skip unless opted into.
 env:
+  BROSEAT_TEST_MUTATE: "1"
   LINUX_PACKAGES: >-
     ninja-build pkg-config libsystemd-dev libseat-dev dbus-daemon dbus-bin
 

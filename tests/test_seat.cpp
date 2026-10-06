@@ -25,6 +25,12 @@ int main() {
     libseat.reset();
     logind.reset();
 
+    if (!bstest::mutate_opted_in()) {
+        if (bstest::failures() > 0) return bstest::finish("test_seat");
+        bstest::skip("test_seat", "taking control of the seat acts on this machine's real session; the "
+                                  "backend refusals were checked, set BROSEAT_TEST_MUTATE=1 for the rest");
+    }
+
     std::string err;
     auto seat = Seat::create(SeatConfig{}, &err);
     if (!seat) {

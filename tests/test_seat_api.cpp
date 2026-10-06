@@ -73,9 +73,17 @@ int main() {
         std::cout << "  getSessionState() [PASS]" << std::endl;
     }
 
+    // lock() and switchVt() act on the user's real logind session (the screen
+    // locks, the display moves to another VT): BROSEAT_TEST_MUTATE=1 only. CI
+    // runners are disposable and set it.
+    const char* mutate_env = std::getenv("BROSEAT_TEST_MUTATE");
+    const bool mutate = mutate_env && std::string(mutate_env) == "1";
+
     // 3. Test lock() and unlock()
     std::cout << "Testing lock() and unlock()..." << std::endl;
-    {
+    if (!mutate) {
+        std::cout << "  lock() and unlock() not called: set BROSEAT_TEST_MUTATE=1 [SKIP]" << std::endl;
+    } else {
         auto r = evalScript(
             "(function() {\n"
             "  const lockRet = bro.seat.lock();\n"
@@ -93,12 +101,14 @@ int main() {
     // 4. Test switchVt()
     std::cout << "Testing switchVt()..." << std::endl;
     {
-        auto r = evalScript(
+        // 0 and -1 are refused before anything reaches logind.
+        auto r = evalScript(std::string(
             "(function() {\n"
             "  if (bro.seat.switchVt(0) !== false) return false;\n"
-            "  if (bro.seat.switchVt(-1) !== false) return false;\n"
-            "  const r1 = bro.seat.switchVt(7);\n"
-            "  if (typeof r1 !== 'boolean') return false;\n"
+            "  if (bro.seat.switchVt(-1) !== false) return false;\n") +
+            (mutate ? "  const r1 = bro.seat.switchVt(7);\n"
+                      "  if (typeof r1 !== 'boolean') return false;\n"
+                    : "") +
             "  return true;\n"
             "})()\n"
         );
