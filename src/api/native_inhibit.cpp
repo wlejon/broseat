@@ -7,11 +7,34 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace broseat::api {
 
 namespace {
+
+// The holder an inhibitor this process took is reported under. Windows has
+// no POSIX user id, so there it is 0, InhibitorInfo::uid's default.
+double selfUid() {
+#if defined(_WIN32)
+    return 0;
+#else
+    return static_cast<double>(getuid());
+#endif
+}
+
+double selfPid() {
+#if defined(_WIN32)
+    return static_cast<double>(_getpid());
+#else
+    return static_cast<double>(getpid());
+#endif
+}
 
 struct ActiveInhibitor {
     uint32_t id = 0;
@@ -125,8 +148,8 @@ void installInhibitOnto(Value seatVal) {
                 b.set("reason", act.reason);
                 b.set("who", "broseat");
                 b.set("mode", "block");
-                b.set("uid", static_cast<double>(getuid()));
-                b.set("pid", static_cast<double>(getpid()));
+                b.set("uid", selfUid());
+                b.set("pid", selfPid());
                 ev::setElement(arr.get(), idx++, b.build());
             }
             return arr.get();
@@ -139,7 +162,7 @@ void installInhibitOnto(Value seatVal) {
 
             uint32_t assignedId = 0;
             for (const auto& [actId, act] : activeCopy) {
-                if (act.type == item.what && act.reason == item.why && item.pid == static_cast<uint32_t>(getpid())) {
+                if (act.type == item.what && act.reason == item.why && item.pid == static_cast<uint32_t>(selfPid())) {
                     assignedId = actId;
                     break;
                 }
