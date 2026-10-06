@@ -29,7 +29,8 @@ void test_environment(const std::string& tag) {
     std::string err;
     const std::string name = "BROSEAT_TEST_" + tag;
     const std::string value = "bar " + tag;
-    REQUIRE(export_environment({{name, value}}, &err));
+    const std::vector<std::pair<std::string, std::string>> vars{{name, value}};
+    REQUIRE(export_environment(vars, &err));
     CHECK_EQ(utils::get_env(name.c_str()), value);
     CHECK(env_has(name + "=" + value) || env_has(name + "=$'" + value + "'") ||
           env_has(name + "=\"" + value + "\""));

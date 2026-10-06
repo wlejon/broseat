@@ -12,9 +12,13 @@ using namespace broseat;
 
 int main() {
     std::string libseat_err, logind_err;
-    auto libseat = Seat::create(SeatConfig{.backend = SeatBackendType::Libseat}, &libseat_err);
+    SeatConfig libseat_cfg;
+    libseat_cfg.backend = SeatBackendType::Libseat;
+    SeatConfig logind_cfg;
+    logind_cfg.backend = SeatBackendType::Logind;
+    auto libseat = Seat::create(libseat_cfg, &libseat_err);
     if (!libseat) CHECK(!libseat_err.empty());
-    auto logind = Seat::create(SeatConfig{.backend = SeatBackendType::Logind}, &logind_err);
+    auto logind = Seat::create(logind_cfg, &logind_err);
     if (!logind) CHECK(!logind_err.empty());
     if (libseat) CHECK(libseat->backend_type() == SeatBackendType::Libseat);
     if (logind) CHECK(logind->backend_type() == SeatBackendType::Logind);
