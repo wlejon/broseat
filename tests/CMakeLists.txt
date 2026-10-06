@@ -25,7 +25,7 @@ if(BROSEAT_LINUX)
     broseat_test(test_seat)
     broseat_test(test_session)
     broseat_test(test_inhibit)
-    broseat_test(test_dbus LIBS PkgConfig::SYSTEMD)
+    broseat_test(test_dbus LIBS brodbus::brodbus PkgConfig::SYSTEMD)
     # Both change the user manager's environment / units: one at a time.
     set_tests_properties(test_session test_autostart PROPERTIES RESOURCE_LOCK user_manager)
 else()

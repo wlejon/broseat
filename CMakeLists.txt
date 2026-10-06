@@ -71,6 +71,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
     pkg_check_modules(LIBSEAT REQUIRED IMPORTED_TARGET libseat)
+
+    # --- brodbus (dbus library) ---
+    if(NOT TARGET brodbus::brodbus)
+        set(BRODBUS_DIR "${CMAKE_SOURCE_DIR}/../brodbus" CACHE PATH
+            "Path to standalone brodbus repo (set to a missing path to force submodule fallback)")
+        if(EXISTS "${BRODBUS_DIR}/CMakeLists.txt")
+            message(STATUS "broseat: brodbus from ${BRODBUS_DIR}")
+            add_subdirectory("${BRODBUS_DIR}" "${CMAKE_BINARY_DIR}/brodbus" EXCLUDE_FROM_ALL)
+        elseif(EXISTS "${CMAKE_SOURCE_DIR}/third_party/brodbus/CMakeLists.txt")
+            message(STATUS "broseat: brodbus from ${CMAKE_SOURCE_DIR}/third_party/brodbus (submodule)")
+            add_subdirectory("${CMAKE_SOURCE_DIR}/third_party/brodbus" "${CMAKE_BINARY_DIR}/brodbus" EXCLUDE_FROM_ALL)
+        else()
+            message(FATAL_ERROR
+                "broseat needs brodbus (dbus library): not found at ${BRODBUS_DIR} or "
+                "${CMAKE_SOURCE_DIR}/third_party/brodbus. Clone https://github.com/wlejon/brodbus next "
+                "to this repo, run `git submodule update --init --recursive`, or override with "
+                "-DBRODBUS_DIR=...")
+        endif()
+    endif()
+
     list(APPEND BROSEAT_SOURCES
         src/dbus/bus.cpp
         src/seat/libseat_backend.cpp
@@ -100,7 +120,7 @@ broseat_warnings(broseat)
 
 target_link_libraries(broseat PUBLIC Threads::Threads)
 if(BROSEAT_LINUX)
-    target_link_libraries(broseat PRIVATE PkgConfig::SYSTEMD PkgConfig::LIBSEAT)
+    target_link_libraries(broseat PUBLIC brodbus::brodbus PRIVATE PkgConfig::SYSTEMD PkgConfig::LIBSEAT)
 endif()
 
 # --- Standalone Bronze JavaScript API ---

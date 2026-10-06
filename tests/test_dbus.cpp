@@ -5,63 +5,27 @@
 #include "run.h"
 #include "dbus/bus.h"
 
+#include <brodbus/private_bus.h>
+
 #include <chrono>
-#include <csignal>
 #include <cstring>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 
 using namespace broseat::dbus;
 
 namespace {
 
-// dbus-daemon --session on a private socket, killed on scope exit.
-struct PrivateBus {
-    pid_t pid = -1;
-    std::string address;
-
-    PrivateBus() {
-        int fds[2];
-        if (pipe(fds) != 0) return;
-        pid = fork();
-        if (pid == 0) {
-            dup2(fds[1], STDOUT_FILENO);
-            close(fds[0]);
-            close(fds[1]);
-            execlp("dbus-daemon", "dbus-daemon", "--session", "--nofork", "--nopidfile",
-                   "--print-address=1", static_cast<char*>(nullptr));
-            _exit(127);
-        }
-        close(fds[1]);
-        char buf[512];
-        ssize_t n = read(fds[0], buf, sizeof buf - 1);
-        close(fds[0]);
-        if (n > 0) {
-            buf[n] = 0;
-            address = bstest::trimmed(buf);
-        }
-    }
-    ~PrivateBus() {
-        if (pid > 0) {
-            kill(pid, SIGTERM);
-            waitpid(pid, nullptr, 0);
-        }
-    }
-    bool ok() const { return !address.empty(); }
-};
-
 int g_parts_run = 0;
 
 void test_private_bus() {
-    PrivateBus daemon;
+    brodbus::PrivateBus daemon;
     if (!daemon.ok()) {
         std::printf("Note: dbus-daemon could not start; the private-bus checks did not run\n");
         return;
     }
     ++g_parts_run;
     std::string err;
-    auto bus = Bus::open_address(daemon.address, &err);
+    auto bus = Bus::open_address(daemon.address(), &err);
     REQUIRE(bus);
     CHECK(bus->is_valid());
     CHECK(bus->get_fd() >= 0);
@@ -80,7 +44,7 @@ void test_private_bus() {
     while (bus->process() > 0) {
     }
 
-    auto sent = bstest::run("DBUS_SESSION_BUS_ADDRESS='" + daemon.address +
+    auto sent = bstest::run("DBUS_SESSION_BUS_ADDRESS='" + daemon.address() +
                             "' dbus-send --session --type=signal / org.bro.Test.Ping string:hello");
     if (!sent.ok()) {
         std::printf("Note: dbus-send is not available; signal delivery was not checked\n");
@@ -101,7 +65,7 @@ void test_private_bus() {
     slot.reset();
     CHECK(!slot.is_valid());
     int before = hits;
-    bstest::run("DBUS_SESSION_BUS_ADDRESS='" + daemon.address +
+    bstest::run("DBUS_SESSION_BUS_ADDRESS='" + daemon.address() +
                 "' dbus-send --session --type=signal / org.bro.Test.Ping string:again");
     for (int i = 0; i < 10; ++i) {
         bus->wait(20000);
