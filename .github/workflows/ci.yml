@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# broseat has no siblings: every job builds this repo alone.
+#
+# Linux jobs run the tests against the runner's own services: logind and the
+# system bus (inhibitors, session, property reads), the runner account's
+# systemd user manager (environment export, units, transient services and
+# scopes for autostart), and private dbus-daemon buses. A hosted runner has no
+# seat, and the job runs outside any logind session, so test_seat checks the
+# backends' refusals and then skips, and test_session's SessionManager part
+# checks the "no session" answer; ctest.sh prints those reasons and notes.
+#
+# Windows and macOS build the portable library and run the portable tests plus
+# test_unavailable, which holds every Linux entry point to refusing with a
+# reason.
+env:
+  LINUX_PACKAGES: >-
+    ninja-build pkg-config libsystemd-dev libseat-dev dbus-daemon dbus-bin
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-gcc,          os: ubuntu-24.04, cc: gcc,   cxx: g++,     config: Release }
+          - { name: linux-clang,        os: ubuntu-24.04, cc: clang, cxx: clang++, config: Release }
+          - { name: windows-msvc,       os: windows-2022,                          config: Release }
+          # Debug CRT: iterator debugging and the library's own assert()s.
+          - { name: windows-msvc-debug, os: windows-2022,                          config: Debug }
+          - { name: macos-arm64,        os: macos-15,                              config: Release }
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends $LINUX_PACKAGES
+
+      - name: Show the user manager (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          systemctl --user show-environment >/dev/null \
+            || echo "::warning::no systemd user manager; test_session will skip"
+          loginctl show-session self 2>&1 | head -5 || true
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -B build
+          else
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          fi
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel 4
+
+      - name: Test
+        shell: bash
+        run: .github/ci/ctest.sh --test-dir build -C ${{ matrix.config }}
+
+  # ── Coverage ──────────────────────────────────────────────────────────────
+  #
+  # Linux only (the backends exist only there), Debug (-O0), so this is also
+  # the Linux job where assert()s are live.
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: broseat
+
+      - name: Install packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcovr $LINUX_PACKAGES
+
+      - name: Configure (instrumented)
+        run: |
+          cmake -S broseat -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBROSEAT_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Test
+        run: broseat/.github/ci/ctest.sh --test-dir build
+
+      # pipefail: piping gcovr into tee otherwise hands the step tee's exit
+      # status, so a gcovr crash produces no report and the job still goes green.
+      - name: Report
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p coverage-html
+          gcovr --root . \
+            --filter 'broseat/src/' --filter 'broseat/include/broseat/' \
+            --exclude 'broseat/src/unavailable/' \
+            --exclude-unreachable-branches \
+            --print-summary \
+            --html-details coverage-html/index.html \
+            | tee coverage-summary.txt
+          test -s coverage-html/index.html
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## Coverage — `src/` + `include/broseat/`'
+            echo
+            echo 'Linux, on a hosted runner: no seat and no logind session, so the device paths of the seat backends are not reached.'
+            echo
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html
+          path: coverage-html/
+          retention-days: 14

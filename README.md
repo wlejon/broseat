@@ -1,164 +1,122 @@
 # broseat
 
-`broseat` is a standalone Linux Session, Seat, and Process Lifecycle management library written in C++20.
-It provides modern RAII interfaces and an asynchronous event-queue architecture for Wayland compositors and desktop components without requiring any desktop shell or display server dependencies.
+[![CI](https://github.com/wlejon/broseat/actions/workflows/ci.yml/badge.svg)](https://github.com/wlejon/broseat/actions/workflows/ci.yml)
 
-## Key Capabilities
+Seat, session and process lifecycle for a Linux desktop session, in C++20: the
+part of a desktop shell or Wayland compositor that talks to logind, libseat
+and the systemd user manager. Device access through the seat, VT switching,
+session lock state, the user manager's environment and units, inhibitors,
+idle tracking and XDG autostart. A standalone library with its own CMake and
+ctest: no dependency on bro or bronze, no siblings, nothing vendored.
 
-1. **Seat & Device Access**:
-   - `libseat` integration (`libseat.h`) with automatic fallback to direct `systemd-logind` D-Bus management (`org.freedesktop.login1.Manager` / `Session`).
-   - In-memory mock seat backend for deterministic testing in headless/CI environments.
-   - Opening and closing restricted character devices (DRM card/render nodes, evdev input nodes) with RAII `SeatDevice` handles.
-   - Virtual terminal switching (`switch_vt()`), session active/inactive switch events, and device pause/resume handshake protocol.
+## Platform support
 
-2. **Systemd User-Session Integration**:
-   - Environment export to the systemd user instance (`SetEnvironment` / `ImportEnvironment` via D-Bus with fallback to `systemctl --user import-environment`).
-   - Systemd target and unit lifecycle management (`graphical-session.target`, `graphical-session-pre.target`, compositor session units).
-   - Session lifecycle monitoring via `org.freedesktop.login1.Session` (`Lock` / `Unlock` signals, `Active` state tracking).
+broseat is a Linux library: everything it manages (seats, logind sessions and
+inhibitors, systemd user units, XDG autostart) exists only there. It still
+configures and builds on **Windows and macOS** with no Linux packages, so a
+cross-platform host can link it unconditionally:
 
-3. **XDG Autostart**:
-   - Discovery and parsing of `.desktop` files in `$XDG_CONFIG_HOME/autostart`, `/etc/xdg/autostart`, and custom search paths with directory priority overriding.
-   - Condition evaluation conforming to the XDG Desktop Entry Specification (`OnlyShowIn`, `NotShowIn`, `Hidden`, `TryExec`, `Exec`, `AutostartCondition`, startup phase).
-   - Launching autostart entries as transient systemd services (`org.freedesktop.systemd1.Manager.StartTransientUnit`), systemd scopes (`systemd-run --user --scope`), or clean `fork()`/`exec()` fallback.
+- The portable parts work everywhere: the types and their names,
+  `EventQueue`, `.desktop` parsing, the autostart conditions, `Exec=`
+  expansion, discovery with directory priority, and `IdleAggregator`.
+- Every entry point that needs a Linux service refuses with the reason:
+  `Seat::create`, `SessionManager::create` and `InhibitManager::create`
+  return nullptr and fill `*error`; the environment and unit functions return
+  false with `*error`; `AutostartManager::launch` returns a failed
+  `LaunchResult` whose `error` says why. Nothing returns an object that only
+  looks like it works.
 
-4. **Idle & Inhibit**:
-   - Inhibitor management via `org.freedesktop.login1.Manager.Inhibit` (idle, sleep, shutdown) with RAII `InhibitorLock`.
-   - Querying active system inhibitors.
-   - `IdleAggregator` for tracking user activity, detecting idle timeouts, and publishing idle state changes while honoring active inhibitors.
+| Area | Linux | Windows, macOS |
+|------|-------|----------------|
+| Seat and devices | libseat (seatd or its logind backend), else logind directly (`TakeControl`, `TakeDevice`, `PauseDevice`/`ResumeDevice`, `SwitchTo`) | unavailable |
+| Session | `org.freedesktop.login1.Session`: id, user, seat, VT, active, state, `LockedHint`, `Lock`/`Unlock` signals | unavailable |
+| User manager | `SetEnvironment`/`UnsetEnvironment` (falling back to `systemctl --user import-environment`), start/stop/restart/reset-failed, `is_unit_active` | unavailable |
+| Inhibitors | `org.freedesktop.login1.Manager.Inhibit` (block and delay) as RAII `InhibitorLock`, `ListInhibitors` | unavailable |
+| Idle | `IdleAggregator` | same |
+| Autostart | discovery, conditions, launch as a transient service, a `systemd-run --user --scope`, or fork/exec | discovery and conditions; launch unavailable |
 
-5. **Event-Queue Architecture**:
-   - Multi-producer, single-consumer `MessageQueue<Event>` / `EventQueue` model.
-   - Type-safe `std::variant` events (`SeatActiveChanged`, `SeatDevicePaused`, `SeatDeviceResumed`, `SessionLockedChanged`, `SessionStateChanged`, `VtSwitched`, `IdleStateChanged`, `InhibitorAdded`, `InhibitorRemoved`, `AutostartEntryLaunched`).
+## Model
 
----
-
-## Directory Structure
+Like the other bro system libraries, each manager owns its connection and
+pushes value snapshots (`std::variant` events in `events.h`) into an
+`EventQueue`; the host drains it on its own loop. Managers that talk to D-Bus
+expose `poll_fd()` and `dispatch()` so the host can fold them into its own
+poll loop. There are no mocks or test setters in the public API.
 
 ```
-broseat/
-├── CMakeLists.txt
-├── README.md
-├── include/
-│   └── broseat/
-│       ├── autostart.h       # XDG Autostart discovery, parsing, and execution
-│       ├── broseat.h         # Umbrella header
-│       ├── event_queue.h     # MessageQueue<T> and EventQueue
-│       ├── events.h          # std::variant Event vocabulary
-│       ├── inhibit.h         # InhibitorLock, InhibitManager, and IdleAggregator
-│       ├── seat.h            # Seat, SeatDevice, SeatConfig
-│       ├── session.h         # Systemd user environment, units, and SessionManager
-│       └── types.h           # Core types, enums, converters
-├── src/
-│   ├── autostart/            # Desktop file parsing, condition evaluation, launching
-│   ├── common/               # String helpers, path utilities, type mappings
-│   ├── dbus/                 # RAII sd-bus connection, message handling, and matching
-│   ├── inhibit/              # Logind inhibitor client and idle state tracking
-│   ├── seat/                 # Libseat, Logind, and Mock seat backend implementations
-│   └── session/              # Environment export, unit management, and session tracker
-└── tests/
-    ├── CMakeLists.txt
-    ├── test_autostart.cpp
-    ├── test_dbus.cpp
-    ├── test_event_queue.cpp
-    ├── test_idle_inhibit.cpp
-    ├── test_seat.cpp
-    ├── test_session.cpp
-    └── test_types.cpp
+include/broseat/
+  broseat.h       umbrella header
+  types.h         enums, InhibitorInfo, AutostartEntry, LaunchResult, SessionInfo
+  events.h        Event: SeatActiveChanged, SeatDevicePaused/Resumed, SessionLockedChanged,
+                  SessionStateChanged, VtSwitched, IdleStateChanged, InhibitorAdded/Removed,
+                  AutostartEntryLaunched
+  event_queue.h   MessageQueue<T> / EventQueue (push, drain, wait_for, wake hook)
+  seat.h          Seat (create, open_device, switch_vt, dispatch), SeatDevice (RAII fd)
+  session.h       export_environment, unset_environment, start/stop/restart/reset_failed_unit,
+                  is_unit_active, SessionManager
+  inhibit.h       InhibitManager, InhibitorLock (RAII), IdleAggregator
+  autostart.h     AutostartManager: search paths, parse, discover, should_autostart, launch
 ```
 
----
+```cpp
+#include <broseat/broseat.h>
 
-## Building & Testing
+std::string err;
+auto seat = broseat::Seat::create({}, &err);        // libseat, then logind
+if (!seat) { /* err says why: no seat, already controlled, not Linux */ }
+auto card = seat->open_device("/dev/dri/card0", &err);
 
-### Requirements
-- C++20 compiler (GCC 11+ or Clang 13+)
-- CMake 3.24+
-- `pkg-config`
-- `libsystemd` (sd-bus)
-- `libseat`
+broseat::export_environment({{"WAYLAND_DISPLAY", "wayland-1"}, {"XDG_CURRENT_DESKTOP", "BRO"}}, &err);
+broseat::start_unit(std::string(broseat::kGraphicalSessionTarget), "replace", &err);
 
-### Build
+auto inhibit = broseat::InhibitManager::create(&err);
+auto lock = inhibit->inhibit("idle", "my-player", "Playing video", broseat::InhibitMode::Block, &err);
+
+broseat::AutostartFilter filter{.current_desktop = "BRO"};
+auto entries = broseat::AutostartManager::discover(broseat::AutostartManager::default_search_paths(), filter);
+for (auto& r : broseat::AutostartManager::launch_all(entries))
+    if (!r.success) std::fprintf(stderr, "%s\n", r.error.c_str());
+```
+
+A seat can be controlled only from a session that is on a seat and that no
+other compositor controls (a free VT, or a seatd the user may use). From an
+ssh login or a service, `Seat::create` refuses and says the session is not on
+a seat.
+
+## Building
+
+Linux needs `pkg-config`, `libsystemd` (sd-bus) and `libseat`
+(`libsystemd-dev libseat-dev` on Debian/Ubuntu, `systemd-libs seatd` on Arch).
+Windows and macOS need nothing beyond the compiler.
 
 ```bash
-cmake -B build -S .
-cmake --build build -j 2
+# Linux / macOS
+cmake -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release
+ctest --test-dir build-release --output-on-failure
+
+# Windows (MSVC, Visual Studio generator)
+cmake -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
 ```
 
-### Run Tests
+`-DBROSEAT_COVERAGE=ON` instruments a GCC/Clang build for gcov.
 
-```bash
-ctest --test-dir build --output-on-failure
-```
+## Tests
 
-Tests run serially and cleanly in headless environments. Real hardware access tests gracefully skip (exit code 77) if running without seat privileges or under restricted CI environments.
+Real ctests: no `assert()` (`tests/check.h` counts failures in every
+configuration). Exit 77 is a skip, used only when a service or privilege is
+absent, and the test prints the reason. Anything that writes cleans up after
+itself (a temporary directory, a transient unit, environment variables it
+added).
 
----
-
-## Example Usage
-
-### 1. Opening a Seat and Device
-
-```cpp
-#include <broseat/seat.h>
-#include <iostream>
-
-using namespace broseat;
-
-int main() {
-    SeatConfig config{ .backend = SeatBackendType::Auto };
-    std::string err;
-    auto seat = Seat::create(config, &err);
-    if (!seat) {
-        std::cerr << "Failed to open seat: " << err << "\n";
-        return 1;
-    }
-
-    std::cout << "Seat backend: " << seat_backend_name(seat->backend_type()) << "\n";
-    std::cout << "Seat name: " << seat->seat_name() << "\n";
-
-    auto dev = seat->open_device("/dev/dri/card0", &err);
-    if (dev) {
-        std::cout << "Opened card0 with fd=" << dev->fd() << "\n";
-    }
-    return 0;
-}
-```
-
-### 2. Exporting Environment to Systemd User Session
-
-```cpp
-#include <broseat/session.h>
-
-broseat::export_environment({
-    {"WAYLAND_DISPLAY", "wayland-0"},
-    {"XDG_CURRENT_DESKTOP", "BRO"}
-});
-
-broseat::start_unit("graphical-session.target");
-```
-
-### 3. Running Autostart Applications
-
-```cpp
-#include <broseat/autostart.h>
-
-using namespace broseat;
-
-AutostartFilter filter{ .current_desktop = "BRO" };
-auto entries = AutostartManager::discover(AutostartManager::default_search_paths(), filter);
-auto results = AutostartManager::launch_all(entries, LaunchMode::Auto);
-```
-
-### 4. Holding an Inhibitor
-
-```cpp
-#include <broseat/inhibit.h>
-
-using namespace broseat;
-
-auto mgr = InhibitManager::create();
-if (mgr) {
-    auto lock = mgr->inhibit("idle", "my-player", "Playing video", InhibitMode::Block);
-    // lock holds the inhibitor until destroyed or lock->release() is called
-}
-```
+| Test | Where | Oracle |
+|------|-------|--------|
+| test_types, test_event_queue, test_idle | everywhere | pure logic |
+| test_autostart | everywhere; launches on Linux | parsing and conditions on files it writes; on Linux fork/exec (the child's exit status and working directory), a transient service and a `systemd-run` scope checked with `systemctl --user is-active` / `show` and a marker file the command writes |
+| test_unavailable | Windows, macOS | every Linux entry point refuses with a reason |
+| test_session | Linux | `systemctl --user show-environment` / `is-active`, a `systemd-run --user` unit stopped and restarted through the library, `loginctl show-session` against `SessionManager` |
+| test_inhibit | Linux | `systemd-inhibit --list`: the library's list matches, a lock appears and disappears with release |
+| test_dbus | Linux | a private `dbus-daemon` with `dbus-send` signals for matches; `busctl get-property` on logind and the user manager |
+| test_seat | Linux | takes the seat when the session can (a free VT); elsewhere it checks each backend's refusal names a reason, then skips |
