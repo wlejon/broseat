@@ -127,6 +127,7 @@ void installSeat() {
     installSessionOnto(seatObj.get());
     installInhibitOnto(seatObj.get());
     installAutostartOnto(seatObj.get());
+    installIdleOnto(seatObj.get());
 }
 
 void tickSeatAsync() {
@@ -135,6 +136,7 @@ void tickSeatAsync() {
 
 void shutdownSeatAsync() {
     clearActiveInhibitors();
+    resetIdleTimer();
 }
 
 } // namespace broseat::api

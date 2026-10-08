@@ -44,6 +44,7 @@ int main() {
         "getSessionState", "lock", "unlock", "switchVt",
         "inhibit", "uninhibit", "listInhibitors",
         "listAutostart", "runAutostart",
+        "setIdleTimeout", "getIdleTimeout", "getIdleState",
         "on", "off", "addEventListener", "removeEventListener"
     };
     for (const char* m : methods) {
@@ -323,6 +324,66 @@ int main() {
         );
         CHECK(!rCheckShutdown.thrown && ev::toBool(rCheckShutdown.value));
         std::cout << "  shutdownSeatAsync() [PASS]" << std::endl;
+    }
+
+    // 8b. The idle timer, driven by the host's clock (tickIdle) the way bro
+    // drives it from its input path.
+    std::cout << "Testing setIdleTimeout() / idle events..." << std::endl;
+    {
+        broseat::api::tickIdle(10000.0, -1.0, false);
+        auto setup = evalScript(
+            "(function() {\n"
+            "  globalThis.__idleLog = [];\n"
+            "  bro.seat.on('idle', (e) => __idleLog.push(e.idle));\n"
+            "  if (bro.seat.getIdleTimeout() !== 0) return false;\n"
+            "  if (bro.seat.setIdleTimeout(1000) !== 1000) return false;\n"
+            "  return bro.seat.getIdleTimeout() === 1000;\n"
+            "})()\n");
+        CHECK(!setup.thrown && ev::toBool(setup.value));
+        auto log = [&]() {
+            auto r = evalScript("__idleLog.join(',')");
+            CHECK(!r.thrown);
+            return ev::toUtf8(r.value);
+        };
+        auto idleNow = [&]() {
+            auto r = evalScript("bro.seat.getIdleState().idle");
+            CHECK(!r.thrown);
+            return ev::toBool(r.value);
+        };
+        // The countdown starts at setIdleTimeout (no input seen yet).
+        broseat::api::tickIdle(10500.0, -1.0, false);
+        CHECK(log().empty() && !idleNow());
+        broseat::api::tickIdle(11001.0, -1.0, false);
+        CHECK(log() == "true" && idleNow());
+        // Input ends it, once.
+        broseat::api::tickIdle(11200.0, 11150.0, false);
+        broseat::api::tickIdle(11300.0, 11150.0, false);
+        CHECK(log() == "true,false" && !idleNow());
+        // Input keeps it away; quiet past the timeout brings it back.
+        broseat::api::tickIdle(12000.0, 11900.0, false);
+        CHECK(log() == "true,false");
+        broseat::api::tickIdle(12950.0, 11900.0, false);
+        CHECK(log() == "true,false,true");
+        broseat::api::tickIdle(13000.0, 12990.0, false);
+        CHECK(log() == "true,false,true,false");
+        // A host inhibitor (a Wayland client's idle-inhibit) holds it off, and
+        // its release restarts the countdown rather than idling at once.
+        broseat::api::tickIdle(13100.0, 12990.0, true);
+        broseat::api::tickIdle(20000.0, 12990.0, true);
+        CHECK(log() == "true,false,true,false");
+        auto st = evalScript("JSON.stringify(bro.seat.getIdleState())");
+        CHECK(!st.thrown && ev::toUtf8(st.value).find("\"inhibited\":true") != std::string::npos);
+        broseat::api::tickIdle(20100.0, 12990.0, false);
+        CHECK(log() == "true,false,true,false");
+        broseat::api::tickIdle(21200.0, 12990.0, false);
+        CHECK(log() == "true,false,true,false,true");
+        // Turning the timer off while idle reports the end of it.
+        auto off = evalScript("bro.seat.setIdleTimeout(0)");
+        CHECK(!off.thrown);
+        CHECK(log() == "true,false,true,false,true,false");
+        broseat::api::tickIdle(99999.0, 12990.0, false);
+        CHECK(log() == "true,false,true,false,true,false" && !idleNow());
+        std::cout << "  idle timer [PASS]" << std::endl;
     }
 
     // 9. GC stress testing loop: verify stability under allocations

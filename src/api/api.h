@@ -21,6 +21,16 @@ void tickSeatAsync();
 /// Cleans up active inhibitors cleanly.
 void shutdownSeatAsync();
 
+/// The host's feed for bro.seat's idle timer (setIdleTimeout): call it every
+/// frame with the host's clock (`nowMs`), the time on that clock of the last
+/// user input the host saw (`lastActivityMs`; input is the host's to see —
+/// under a DRM session it reads the devices itself), and whether the host
+/// knows of an idle inhibitor of its own (a Wayland client's
+/// zwp_idle_inhibit). Fires the `idle` event on each transition. Inhibitors
+/// taken through bro.seat.inhibit('idle') and logind idle inhibitors are
+/// counted here too.
+void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited);
+
 /// Sets the session manager used by the API (defaults to SessionManager::create()).
 void setSessionManager(std::shared_ptr<broseat::SessionManager> mgr);
 
@@ -50,6 +60,7 @@ broseat::AutostartFilter getAutostartFilter();
 using broseat::api::installSeat;
 using broseat::api::tickSeatAsync;
 using broseat::api::shutdownSeatAsync;
+using broseat::api::tickIdle;
 using broseat::api::setSessionManager;
 using broseat::api::getSessionManager;
 using broseat::api::setInhibitManager;

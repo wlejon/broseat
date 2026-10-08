@@ -49,6 +49,21 @@ std::unordered_map<uint32_t, ActiveInhibitor> g_active_inhibitors;
 
 } // namespace
 
+bool hasLocalInhibitor(const std::string& what) {
+    std::lock_guard lock(g_inhibit_mu);
+    for (const auto& [id, entry] : g_active_inhibitors) {
+        size_t start = 0;
+        while (start <= entry.type.size()) {
+            size_t colon = entry.type.find(':', start);
+            if (colon == std::string::npos) colon = entry.type.size();
+            if (entry.type.compare(start, colon - start, what) == 0 && colon - start == what.size())
+                return true;
+            start = colon + 1;
+        }
+    }
+    return false;
+}
+
 void clearActiveInhibitors() {
     std::lock_guard lock(g_inhibit_mu);
     for (auto& [id, entry] : g_active_inhibitors) {

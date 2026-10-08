@@ -4,6 +4,7 @@ add_library(broseat_api STATIC
     native_session.cpp
     native_inhibit.cpp
     native_autostart.cpp
+    native_idle.cpp
 )
 
 target_include_directories(broseat_api PUBLIC

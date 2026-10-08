@@ -20,6 +20,8 @@ struct Subscription {
 std::mutex g_sub_mu;
 std::vector<Subscription> g_subscriptions;
 
+} // namespace
+
 void dispatchSeatEvent(std::string_view event, Value payload) {
     ev::Persistent payloadRoot(payload);
 
@@ -56,8 +58,6 @@ void dispatchSeatEvent(std::string_view event, Value payload) {
         }
     }
 }
-
-} // namespace
 
 void addSeatEventListener(const std::string& event, Value callback) {
     if (!ev::isFunction(callback)) return;
