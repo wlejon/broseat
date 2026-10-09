@@ -115,34 +115,19 @@ int main() {
 
 ## Building
 
-### Sibling vs. Submodule Layout
+### Dependencies
 
-On Linux, `broseat` requires **[brodbus](https://github.com/wlejon/brodbus)**. It resolves `brodbus` in standard ecosystem order:
-1. An existing `brodbus::brodbus` target in the CMake project;
-2. Sibling checkout beside `broseat` (`../brodbus`, overridable with `-DBRODBUS_DIR=<path>`);
-3. Submodule fallback at `third_party/brodbus` (`git submodule update --init --recursive`).
-
-#### Sibling Layout (Recommended for dev)
-
-```bash
-git clone https://github.com/wlejon/brodbus
-git clone https://github.com/wlejon/broseat
-```
-
-#### Submodule Layout (Standalone clone)
-
-```bash
-git clone --recursive https://github.com/wlejon/broseat
-# Or in an existing clone:
-git submodule update --init --recursive
-```
+On Linux, `broseat` requires **[brodbus](https://github.com/wlejon/brodbus)**. There are no submodules: brodbus (and bronze, for the JavaScript API) is a `bro_dependency()` pin in `CMakeLists.txt`, resolved through `cmake/bro_deps.cmake` in this order:
+1. An existing `brodbus` target in the CMake project;
+2. A working tree beside the top-level project (`../brodbus`), or `-DFETCHCONTENT_SOURCE_DIR_BRODBUS=<path>`;
+3. The pinned commit, fetched from GitHub at configure, so a plain `git clone` builds.
 
 ### Consuming `broseat` in CMake
 
 Downstream consumers link against the `broseat::broseat` alias target:
 
 ```cmake
-add_subdirectory(broseat)
+add_subdirectory(path/to/broseat)   # or bro_dependency(broseat ...)
 target_link_libraries(my_app PRIVATE broseat::broseat)
 ```
 
@@ -181,7 +166,7 @@ ctest --test-dir build-release --output-on-failure
 
 - `-DBROSEAT_BUILD_TESTS=ON|OFF` (default ON when top-level): build test suites.
 - `-DBROSEAT_COVERAGE=ON|OFF` (default OFF): instrument GCC/Clang with gcov for code coverage.
-- `-DBROSEAT_ENABLE_API=ON|OFF` (default ON): build standalone Bronze JavaScript API (`broseat_api`, requires `../bronze`).
+- `-DBROSEAT_ENABLE_API=ON|OFF` (default ON when top-level): build standalone Bronze JavaScript API (`broseat_api`; bronze from `../bronze` or the pinned commit).
 
 ## Tests
 
