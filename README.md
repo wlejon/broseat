@@ -120,7 +120,7 @@ int main() {
 On Linux, `broseat` requires **[brodbus](https://github.com/wlejon/brodbus)**. There are no submodules: brodbus (and bronze, for the JavaScript API) is a `bro_dependency()` pin in `CMakeLists.txt`, resolved through `cmake/bro_deps.cmake` in this order:
 1. An existing `brodbus` target in the CMake project;
 2. A working tree beside the top-level project (`../brodbus`), or `-DFETCHCONTENT_SOURCE_DIR_BRODBUS=<path>`;
-3. The pinned commit, fetched from GitHub at configure, so a plain `git clone` builds.
+3. The head of its main branch, fetched from GitHub at configure, so a plain `git clone` builds.
 
 ### Consuming `broseat` in CMake
 
@@ -166,7 +166,7 @@ ctest --test-dir build-release --output-on-failure
 
 - `-DBROSEAT_BUILD_TESTS=ON|OFF` (default ON when top-level): build test suites.
 - `-DBROSEAT_COVERAGE=ON|OFF` (default OFF): instrument GCC/Clang with gcov for code coverage.
-- `-DBROSEAT_ENABLE_API=ON|OFF` (default ON when top-level): build standalone Bronze JavaScript API (`broseat_api`; bronze from `../bronze` or the pinned commit).
+- `-DBROSEAT_ENABLE_API=ON|OFF` (default ON when top-level): build standalone Bronze JavaScript API (`broseat_api`; bronze from `../bronze` or the head of its main branch).
 
 ## Tests
 
