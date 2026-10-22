@@ -69,15 +69,22 @@ void addSeatEventListener(const std::string& event, Value callback) {
 }
 
 void removeSeatEventListener(const std::string& event, Value callback) {
-    if (!ev::isFunction(callback)) return;
+    bool removeAll = ev::isUndefined(callback) || ev::isNull(callback);
+    if (!removeAll && !ev::isFunction(callback)) return;
     std::lock_guard lock(g_sub_mu);
     g_subscriptions.erase(
         std::remove_if(g_subscriptions.begin(), g_subscriptions.end(),
                        [&](const Subscription& sub) {
                            if (sub.event != event) return false;
+                           if (removeAll) return true;
                            return sub.callback && sub.callback->get() == callback;
                        }),
         g_subscriptions.end());
+}
+
+void clearSeatSubscriptions() {
+    std::lock_guard lock(g_sub_mu);
+    g_subscriptions.clear();
 }
 
 void drainSeatEvents() {
@@ -100,9 +107,9 @@ void drainSeatEvents() {
                 std::string type = event.locked ? "lock" : "unlock";
                 b.set("type", type);
                 b.set("locked", event.locked);
-                Value val = b.build();
-                dispatchSeatEvent(type, val);
-                dispatchSeatEvent("locked", val);
+                ev::Persistent valP(b.build());
+                dispatchSeatEvent(type, valP.get());
+                dispatchSeatEvent("locked", valP.get());
             } else if constexpr (std::is_same_v<T, SessionStateChanged>) {
                 ObjectBuilder b;
                 b.set("type", "state");

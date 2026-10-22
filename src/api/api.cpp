@@ -137,6 +137,7 @@ void tickSeatAsync() {
 void shutdownSeatAsync() {
     clearActiveInhibitors();
     resetIdleTimer();
+    clearSeatSubscriptions();
 }
 
 } // namespace broseat::api

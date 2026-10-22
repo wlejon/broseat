@@ -132,8 +132,14 @@ void installIdleOnto(Value seatVal) {
             g_idle.agg = std::make_unique<IdleAggregator>(timeout);
             g_idle.agg->report_activity(at(g_idle.nowMs > g_idle.lastActivitySeen ? g_idle.nowMs
                                                                                   : g_idle.lastActivitySeen));
-            g_idle.inhibited = false;
-            g_idle.lastSystemPollMs = -1.0;
+            const bool localInh = localIdleInhibited();
+            g_idle.localInhibited = localInh;
+            auto mgr = activeInhibitManager();
+            g_idle.systemInhibited = mgr && mgr->is_inhibited("idle");
+            g_idle.lastSystemPollMs = g_idle.nowMs;
+            const bool want = g_idle.hostInhibited || g_idle.systemInhibited || localInh;
+            g_idle.inhibited = want;
+            g_idle.agg->set_inhibited(want);
         } else {
             g_idle.agg->set_idle_timeout(timeout);
         }
@@ -154,8 +160,8 @@ void installIdleOnto(Value seatVal) {
         b.set("idleTime", on ? static_cast<double>(g_idle.agg->current_idle_time(at(g_idle.nowMs)).count())
                              : 0.0);
         b.set("timeout", g_idle.timeoutMs);
-        b.set("inhibited", on ? g_idle.inhibited
-                              : (g_idle.hostInhibited || localIdleInhibited()));
+        const bool liveInh = g_idle.hostInhibited || g_idle.systemInhibited || localIdleInhibited();
+        b.set("inhibited", on ? (g_idle.inhibited || liveInh) : liveInh);
         return b.build();
     });
 }

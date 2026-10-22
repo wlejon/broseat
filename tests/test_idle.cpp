@@ -59,6 +59,20 @@ int main() {
     agg.set_idle_timeout(1000ms);
     CHECK(!agg.check_idle(t0 + 1500ms));
     CHECK(agg.check_idle(t0 + 1700ms));
+    agg.event_queue().drain();
+
+    // Inhibiting while idle at a synthetic timestamp emits idle=false with idle_time=0ms.
+    IdleAggregator synth_agg(100ms);
+    auto synth_t0 = std::chrono::steady_clock::time_point(100ms);
+    synth_agg.report_activity(synth_t0);
+    CHECK(synth_agg.check_idle(synth_t0 + 250ms));
+    synth_agg.event_queue().drain();
+    synth_agg.set_inhibited(true);
+    auto synth_evs = synth_agg.event_queue().drain();
+    REQUIRE(synth_evs.size() == 1);
+    const auto& ic = std::get<IdleStateChanged>(synth_evs[0]);
+    CHECK(!ic.idle);
+    CHECK(ic.idle_time == 0ms);
 
     return bstest::finish("test_idle");
 }

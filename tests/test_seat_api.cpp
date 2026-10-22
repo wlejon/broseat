@@ -383,6 +383,27 @@ int main() {
         CHECK(log() == "true,false,true,false,true,false");
         broseat::api::tickIdle(99999.0, 12990.0, false);
         CHECK(log() == "true,false,true,false,true,false" && !idleNow());
+
+        // Verify setIdleTimeout preserves hostInhibited in getIdleState().inhibited
+        // and inhibiting while idle emits idleTime === 0
+        broseat::api::tickIdle(30000.0, 30000.0, true);
+        auto inhCheck = evalScript(
+            "(function() {\n"
+            "  bro.seat.setIdleTimeout(500);\n"
+            "  return bro.seat.getIdleState().inhibited === true;\n"
+            "})()\n");
+        CHECK(!inhCheck.thrown && ev::toBool(inhCheck.value));
+        evalScript(
+            "globalThis.__lastIdleTime = -1;\n"
+            "bro.seat.on('idle', (e) => { if (!e.idle) globalThis.__lastIdleTime = e.idleTime; });\n");
+        broseat::api::tickIdle(30100.0, 30000.0, false);
+        broseat::api::tickIdle(30700.0, 30000.0, false);
+        CHECK(idleNow());
+        broseat::api::tickIdle(30800.0, 30000.0, true);
+        CHECK(!idleNow());
+        auto idleTimeZero = evalScript("globalThis.__lastIdleTime === 0");
+        CHECK(!idleTimeZero.thrown && ev::toBool(idleTimeZero.value));
+        evalScript("bro.seat.setIdleTimeout(0);");
         std::cout << "  idle timer [PASS]" << std::endl;
     }
 

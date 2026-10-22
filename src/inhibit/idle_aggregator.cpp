@@ -38,7 +38,7 @@ void IdleAggregator::set_inhibited(bool inhibited) {
         is_idle_ = false;
         Event ev = IdleStateChanged{
             .idle = false,
-            .idle_time = current_idle_time()
+            .idle_time = std::chrono::milliseconds(0)
         };
         event_queue_.push(ev);
         if (callback_) {

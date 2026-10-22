@@ -254,8 +254,10 @@ void LogindBackend::on_resume_device(uint32_t major, uint32_t minor, int fd) {
     DeviceKey key{major, minor};
     auto it = id_by_key_.find(key);
     if (it != id_by_key_.end()) {
+        int owned_fd = (fd >= 0) ? fcntl(fd, F_DUPFD_CLOEXEC, 0) : -1;
+        if (owned_fd < 0) return;
         int dev_id = it->second;
-        notify_event(SeatDeviceResumed{dev_id, fd});
+        notify_event(SeatDeviceResumed{dev_id, owned_fd});
     }
 }
 

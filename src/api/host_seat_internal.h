@@ -32,6 +32,7 @@ bool hasLocalInhibitor(const std::string& what);
 // Drops the idle timer (realm teardown).
 void resetIdleTimer();
 void clearActiveInhibitors();
+void clearSeatSubscriptions();
 
 void addSeatEventListener(const std::string& event, Value callback);
 void removeSeatEventListener(const std::string& event, Value callback);
