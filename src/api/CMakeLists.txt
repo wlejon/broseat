@@ -1,6 +1,5 @@
 add_library(broseat_api STATIC
     api.cpp
-    host_class.cpp
     native_session.cpp
     native_inhibit.cpp
     native_autostart.cpp
