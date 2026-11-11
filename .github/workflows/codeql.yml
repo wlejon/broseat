@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 # What broseat reads is not its own: .desktop files anyone can drop into an
 # autostart directory, Exec= lines it tokenizes and executes, and D-Bus replies
