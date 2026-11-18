@@ -15,6 +15,13 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace broseat::api {
 
@@ -39,6 +46,7 @@ struct IdleTimer {
     bool hostInhibited = false;
     bool systemInhibited = false;
     double lastSystemPollMs = -1.0;
+    bool sessionInhibitors = true;        // the other programs' count (tickIdle)
     bool inhibited = false;
     bool localInhibited = false;
 };
@@ -62,11 +70,31 @@ bool localIdleInhibited() {
     return hasLocalInhibitor("idle");
 }
 
+// Whether another program holds a logind idle inhibitor. This process's own
+// are left out: they are localIdleInhibited's, known exactly, while logind's
+// list still names one for a moment after it is released (it notices the
+// closed fd on its own time), which held a released inhibitor in force until
+// the next poll.
+bool otherIdleInhibitors() {
+    auto mgr = activeInhibitManager();
+    if (!mgr) return false;
+#if defined(_WIN32)
+    const uint32_t self = static_cast<uint32_t>(_getpid());
+#else
+    const uint32_t self = static_cast<uint32_t>(getpid());
+#endif
+    for (const auto& inh : mgr->list_inhibitors(nullptr)) {
+        if (inh.pid != self && inh.what.find("idle") != std::string::npos) return true;
+    }
+    return false;
+}
+
 } // namespace
 
-void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited) {
+void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited, bool sessionInhibitors) {
     g_idle.nowMs = nowMs;
     g_idle.hostInhibited = hostInhibited;
+    g_idle.sessionInhibitors = sessionInhibitors;
     if (!g_idle.agg) return;
 
     if (lastActivityMs > g_idle.lastActivitySeen) {
@@ -74,16 +102,13 @@ void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited) {
         g_idle.agg->report_activity(at(lastActivityMs));
     }
 
-    // This process's own inhibitors are logind's too, so the session-wide
-    // answer is asked again whenever they change, not only on the poll.
     const bool localInhibited = localIdleInhibited();
-    const bool localChanged = localInhibited != g_idle.localInhibited;
     g_idle.localInhibited = localInhibited;
-    if (localChanged || g_idle.lastSystemPollMs < 0.0 ||
-        nowMs - g_idle.lastSystemPollMs >= kSystemInhibitPollMs) {
+    if (!sessionInhibitors) {
+        g_idle.systemInhibited = false;
+    } else if (g_idle.lastSystemPollMs < 0.0 || nowMs - g_idle.lastSystemPollMs >= kSystemInhibitPollMs) {
         g_idle.lastSystemPollMs = nowMs;
-        auto mgr = activeInhibitManager();
-        g_idle.systemInhibited = mgr && mgr->is_inhibited("idle");
+        g_idle.systemInhibited = otherIdleInhibitors();
     }
 
     const bool inhibited = hostInhibited || g_idle.systemInhibited || localInhibited;
@@ -134,8 +159,7 @@ void installIdleOnto(Value seatVal) {
                                                                                   : g_idle.lastActivitySeen));
             const bool localInh = localIdleInhibited();
             g_idle.localInhibited = localInh;
-            auto mgr = activeInhibitManager();
-            g_idle.systemInhibited = mgr && mgr->is_inhibited("idle");
+            g_idle.systemInhibited = g_idle.sessionInhibitors && otherIdleInhibitors();
             g_idle.lastSystemPollMs = g_idle.nowMs;
             const bool want = g_idle.hostInhibited || g_idle.systemInhibited || localInh;
             g_idle.inhibited = want;

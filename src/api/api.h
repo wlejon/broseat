@@ -27,9 +27,11 @@ void shutdownSeatAsync();
 /// under a DRM session it reads the devices itself), and whether the host
 /// knows of an idle inhibitor of its own (a Wayland client's
 /// zwp_idle_inhibit). Fires the `idle` event on each transition. Inhibitors
-/// taken through bro.seat.inhibit('idle') and logind idle inhibitors are
-/// counted here too.
-void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited);
+/// taken through bro.seat.inhibit('idle') are counted here too, and, when
+/// `sessionInhibitors` is set, the session's other logind idle inhibitors
+/// (another program's): a host on a virtual clock (headless) leaves it off,
+/// its idleness being its injected input's and nobody else's.
+void tickIdle(double nowMs, double lastActivityMs, bool hostInhibited, bool sessionInhibitors = true);
 
 /// Sets the session manager used by the API (defaults to SessionManager::create()).
 void setSessionManager(std::shared_ptr<broseat::SessionManager> mgr);
